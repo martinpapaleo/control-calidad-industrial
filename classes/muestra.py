@@ -1,0 +1,128 @@
+from classes.entidad import Entidad
+from classes.estado_muestra import EstadoMuestra
+from classes.validacion import validar_cantidad
+from classes.excepciones import TransicionIlegalError
+from classes.reporte import Reporte
+from classes.pila import Pila
+import uuid
+
+
+class Muestra(Entidad):
+    def __init__(self, cantidad, lote_id):
+        self._id = uuid.uuid4()
+        self._cantidad = validar_cantidad(cantidad)
+        self._lote_id = lote_id
+        self._historial = Pila(EstadoMuestra)  # pila LIFO con el historial de estados
+        self._historial.push(EstadoMuestra.PENDIENTE)  # push: agrega el estado inicial en el top
+        self._defectos = []
+        self._inspeccion = None
+        self._reporte = None
+
+    @property
+    def id(self):
+        return self._id
+
+    @property
+    def cantidad(self):
+        return self._cantidad
+
+    @property
+    def estado(self):
+        return self._historial.peek()  # peek: consulta el top (estado actual) sin quitarlo
+
+    @property
+    def historial_estados(self):
+        """Tupla inmutable, del estado más antiguo al más nuevo."""
+        return self._historial.historial()  # historial: estados del bottom (más antiguo) al top
+
+    @property
+    def defectos(self):
+        """Retorna una tupla inmutable de los defectos registrados."""
+        return tuple(self._defectos)
+
+    @property
+    def lote_id(self):
+        return self._lote_id
+
+    @property
+    def inspeccion(self):
+        return self._inspeccion
+
+    @property
+    def reporte(self):
+        return self._reporte
+
+    def _cambiar_estado(self, nuevo):
+        """Registra el nuevo estado en el historial (pila): el tope es el estado actual."""
+        self._historial.push(nuevo)  # push: el nuevo estado pasa a ser el top
+
+    def asignar_inspeccion(self, inspeccion):
+        """Asigna la inspección a la muestra (encapsulación correcta)."""
+        if self._inspeccion is not None:
+            raise TransicionIlegalError(
+                f"La muestra '{self._id}' ya tiene una inspección asignada."
+            )
+        self._inspeccion = inspeccion
+
+    # --- Transiciones de estado ---
+
+    def iniciar_inspeccion(self):
+        """Transición PENDIENTE → EN_INSPECCION."""
+        if self.estado != EstadoMuestra.PENDIENTE:
+            raise TransicionIlegalError(
+                f"No se pudo iniciar la inspección: la muestra '{self._id}' "
+                f"está en estado {self.estado.value}, se espera PENDIENTE."
+            )
+        self._cambiar_estado(EstadoMuestra.EN_INSPECCION)
+    
+    def agregar_defecto(self, defecto):
+        """Agrega un defecto a la muestra. Solo se puede en estado EN_INSPECCION."""
+        if self.estado != EstadoMuestra.EN_INSPECCION:
+            raise TransicionIlegalError(
+                f"No se pudo agregar un defecto: la muestra '{self._id}' "
+                f"está en estado {self.estado.value}, se espera EN_INSPECCION."
+            )
+        self._defectos.append(defecto)
+
+    def cerrar(self, limite_gravedad):
+        """Cierra la muestra determinando su conformidad.
+        NO_CONFORME si tiene defecto crítico (gravedad 5) o suma > límite.
+        CONFORME en caso contrario. Ambos estados son finales."""
+        if self.estado != EstadoMuestra.EN_INSPECCION:
+            raise TransicionIlegalError(
+                f"No se pudo cerrar la muestra '{self._id}': "
+                f"está en estado {self.estado.value}, se espera EN_INSPECCION."
+            )
+
+        if self.tiene_critico() or self.suma_gravedades() > limite_gravedad:
+            self._cambiar_estado(EstadoMuestra.NO_CONFORME)
+        else:
+            self._cambiar_estado(EstadoMuestra.CONFORME)
+
+        # Generar reporte si es no conforme
+        if self.estado == EstadoMuestra.NO_CONFORME:
+            self._reporte = Reporte(
+                muestra_id=self._id,
+                lote_id=self._lote_id,
+                profesional_id=self._inspeccion.profesional_id,
+                fecha=self._inspeccion.fecha,
+                defectos=self._defectos,
+                historial_estados=self.historial_estados,
+            )
+
+    # --- Cálculos con sum(), any(), map() ---
+
+    def suma_gravedades(self):
+        """Suma de gravedades de todos los defectos, usando sum() + map()."""
+        return sum(map(lambda d: d.gravedad, self._defectos))
+
+    def tiene_critico(self):
+        """Verifica si hay al menos un defecto crítico (gravedad 5), usando any() + map()."""
+        return any(map(lambda d: d.es_critico(), self._defectos))
+
+    def __repr__(self):
+        return (
+            f"Muestra(id={self._id}, cantidad={self._cantidad}, "
+            f"estado={self.estado.value}, defectos={len(self._defectos)}, "
+            f"lote_id={self._lote_id})"
+        )

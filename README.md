@@ -43,4 +43,4 @@ Partes del código se desarrollaron con asistencia de IA (Claude) y fueron revis
 
 ## Licencia
 
-Ver el archivo `LICENSE`.
+Ver el archivo `LICENSE`
